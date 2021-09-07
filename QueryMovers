@@ -1,0 +1,153 @@
+library(tidyverse)
+library(readxl)
+library(ggrepel)
+library(ggthemes)
+library(grid)
+library(extrafont)
+library(ggplot2)
+
+#load in data
+
+dat <- read_excel("C:/Users/resmi/Desktop/WeeklyMovers.xlsx", sheet = 1)
+
+#filter out subheader
+
+dat <- dat %>% filter(row_number() != 1)
+
+dat <- dat %>% mutate(DeltaRank = round(percent_rank(`SRPVs Delta`) * 100, 0)) %>%
+  mutate(DeltaRank2 = 100 - DeltaRank)
+
+dat <- dat %>% mutate(SearchPercentRank = round(percent_rank(`...3`) * 100, 0)) %>%
+  mutate(SearchPercentRank2 = 100 - SearchPercentRank)
+
+dat <- dat %>% mutate(highorlow = ifelse(SearchPercentRank2 > 49, "Higher Base Volume", "Lower Base Volume"))
+
+dat$highorlow <- factor(dat$highorlow, levels = c("Lower Base Volume", "Higher Base Volume"))
+
+
+#Top 25 weekly query movers
+
+top25 <- top_n(dat, 25, as.numeric(`SRPVs Delta`))
+
+top25$`SRPVs Delta` <- as.numeric(top25$`SRPVs Delta`)
+
+p1 <- ggplot(top25, aes(x = reorder(Query, -`SRPVs Delta`), y = `SRPVs Delta`, col = highorlow)) +
+  geom_point(aes(size = `SRPVs Delta`), alpha = .7) +
+  scale_color_manual(values = c("darkcyan", "cyan")) +
+  scale_fill_manual(values = c("darkcyan", "cyan"), labels = c("Emerging Query", "Continuation Query")) +
+  geom_label_repel(aes(label = Query, fill = highorlow), col = "grey") +
+  scale_size(range = c(6, 20)) +
+  labs(title = "Top 25 Travel Queries - Month over Month Search Interest Gains",
+       subtitle = "Emergent queries are those that had lower volume levels last week. Continuation queries are those that had higher volume levels last week.",
+       y = "Month over Month Search Interest Increase",
+       caption = "Microsoft AAIG") +
+  theme_fivethirtyeight() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_text()) +
+  guides(size = "none",
+         col = "none",
+         fill = guide_legend(title = "Volume Profile"))
+
+#Add a percentile rank column on previous week's SRPVs
+
+top25 <- top25 %>% mutate(SearchPercentRank = round(percent_rank(`...3`) * 100, 0)) %>%
+                   mutate(SearchPercentRank2 = 100 - SearchPercentRank)
+
+#Add a percentile rank column on this week's delta
+
+dat <- dat %>% mutate(DeltaRank = round(percent_rank(`SRPVs Delta`) * 100, 0)) %>%
+               mutate(DeltaRank2 = 100 - DeltaRank)
+
+
+#Plot Delta and Percentile Rank
+
+dat$`SRPVs Delta` <- as.numeric(dat$`SRPVs Delta`)
+
+sixtieth <- dat %>% filter(DeltaRank == 69)
+sixtiethnum <- sixtieth$`SRPVs Delta`
+
+p2 <- ggplot(dat, aes(x = SearchPercentRank2, y = `SRPVs Delta`)) +
+  geom_hline(yintercept = sixtiethnum, lty = 2, col = "blue", alpha = .5) +
+  geom_segment(aes(x = 0, y = 0, xend = max(SearchPercentRank2), yend = 0),
+               arrow = arrow(length = unit(0.03, "npc"))) +
+  geom_label(aes(x = 25, y = -5000, label = "Lower base volume"), fill = "darkcyan", col = "white") +
+  geom_label(aes(x = 75, y = -5000, label = "Higher base volume"), fill = "darkcyan", col = "white") +
+  geom_point(col = "darkcyan", size = 2) +
+  geom_label_repel(data = dat %>% filter(DeltaRank > 0), aes(label = Query)) +
+  geom_vline(xintercept = 50, lty = 2) +
+  labs(y = "Search Volume Increase",
+       x = "Baseline Volume",
+       title = "Month over Month Search Increase and Baseline Volume",
+       subtitle = "Queries left of center are those emerging from periods of lower volume. These are spiking, and may sustain their volumes. Queries right of center are those seeing significant volume increases from an already strong volume pool.") +
+  theme_fivethirtyeight() +
+  theme(axis.text = element_blank(),
+        axis.title = element_text(),
+        panel.border = element_rect(color = "violet", size = 2))
+
+#placeholderplot
+p1
+dat2 <- dat %>% group_by(highorlow) %>%
+                top_n(25, `SRPVs Delta`) %>%
+                ungroup()
+
+p3 <- ggplot(dat2, aes(x = reorder(Query, -`SRPVs Delta`), y = `SRPVs Delta`, fill = highorlow)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = 0, col = "grey70", alpha = .3, size = 1.6) +
+  scale_fill_manual(values = c("darkcyan", "cyan2")) +
+  facet_wrap(~highorlow, scales = "free_x") +
+  labs(title = "Month over Month Change by Volume Profile",
+       subtitle = "Search terms that receive big volume increases when preceding volume levels were significantly lower can be interpreted as emergent queries. Search terms that receive big volume increases when preceding volume levels were high can be interpreted as \ncontinuation, or growth queries.",
+       y = "MoM Increase",
+       x = "Search Term") +
+  theme_fivethirtyeight() +
+  theme(axis.text.x = element_text(angle = 90, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.title = element_text(),
+        legend.position = "none")
+
+#Distributions
+
+dat$CPC <- as.numeric(dat$CPC)
+
+ggplot(dat, aes(x = CPC, fill = highorlow)) +
+  geom_dotplot(binwidth = .25, alpha = .5)
+
+#INFOGRAPHIC
+
+vplayout <- function(x, y) viewport(layout.pos.row = x, layout.pos.col = y)
+
+windowsFonts("Helvetica" = windowsFont("Helvetica"))
+
+pdf("C:/Users/resmi/Desktop/TravelMovers.pdf", width = 20, height = 30)
+grid.newpage() 
+pushViewport(viewport(layout = grid.layout(4, 3)))
+grid.rect(gp = gpar(fill = "#E2E2E3", col = "#E2E2E3"))
+grid.text("QUERY MOVEMENT", y = unit(1, "npc"), x = unit(0.5, "npc"), vjust = 1, hjust = .5, gp = gpar(fontfamily = "Helvetica", col = "cyan3", cex = 12, alpha = 0.3))
+grid.text("Travel Vertical", y = unit(0.94, "npc"), gp = gpar(fontfamily = "Helvetica", col = "darkcyan", cex = 6.4))
+print(p2, vp = vplayout(3, 1:3))
+print(p1, vp = vplayout(2, 1:3))
+print(p3, vp = vplayout(4, 1:3))
+grid.rect(gp = gpar(fill = "darkcyan", col = "violet"), x = unit(0.5, "npc"), y = unit(0.82, "npc"), width = unit(1, "npc"), height = unit(0.11, "npc"))
+grid.text("MICROSOFT ADVERTISING", y = unit(0.82, "npc"), x = unit(0.5, "npc"), vjust = .5, hjust = .5, gp = gpar(fontfamily = "Helvetica", col = "cyan3", cex = 8, alpha = 0.2))
+grid.text("Microsoft Advertiser Analytics Insights Group", vjust = 0, hjust = 0, x = unit(0.01, "npc"), y = unit(0.88, "npc"), gp = gpar(fontfamily = "Helvetica", col = "#552683", cex = 1.2))
+grid.text("Data Profile", vjust = 0, hjust = 0, x = unit(0.01, "npc"), y = unit(0.86, "npc"), gp = gpar(fontfamily = "Helvetica", col = "white", fontface = "bold", cex = 1.2))
+grid.text(paste(
+  "Source:",
+  "Analysis:",
+  "Frequency of Update:",
+  "Most recent date:",
+  "Compared to:",
+  "Market:", sep = "\n"), vjust = 0, hjust = 0, x = unit(0.01, "npc"), y = unit(0.79, "npc"), gp = gpar(fontfamily = "Helvetica", fontface = "bold", col = "#552683", cex = 1))
+grid.text(paste(
+  "Microsoft Advertising Internal",
+  "Microsoft AAIG",
+  "8/1/21 - 8/31/21",
+  "7/1/21 - 7/31/21",
+  "US", sep = "\n"), vjust = 0, hjust = 0, x = unit(0.15, "npc"), y = unit(0.79, "npc"), gp = gpar(fontfamily = "Helvetica", fontface = "bold", col = "cyan", cex = 1))
+dev.off()
+
+Sys.setenv(R_GSCMD = "C:/Program Files (x86)/gs/gs9.54.0/bin/gswin32c.exe")
+
+extrafont::embed_fonts("C:/Users/resmi/Desktop/TravelMovers.pdf")
+
